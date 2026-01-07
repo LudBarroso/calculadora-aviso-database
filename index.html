@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Calculadora de Aviso Prévio</title>
+
+  <style>
+    body { font-family: Arial, sans-serif; background:#f4f6f8; padding:20px; }
+    .container{ max-width:520px; margin:auto; background:#fff; padding:25px; border-radius:10px; box-shadow:0 0 10px rgba(0,0,0,.1); }
+    h2{ text-align:center; margin:0 0 10px; }
+    label{ font-weight:700; display:block; margin-top:14px; }
+    input, select, button{ width:100%; padding:10px; margin-top:6px; border-radius:6px; border:1px solid #ccc; font-size:14px; }
+    button{ background:#007BFF; color:#fff; border:none; cursor:pointer; margin-top:18px; }
+    button:hover{ background:#0056b3; }
+    .resultado{ margin-top:18px; padding:14px; border-radius:6px; text-align:center; font-weight:700; }
+    .ok{ background:#d4edda; color:#155724; }
+    .erro{ background:#f8d7da; color:#721c24; }
+    .mini{ font-weight:400; margin-top:10px; font-size:13px; line-height:1.35; }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h2>Calculadora de Aviso Prévio</h2>
+
+    <label>Data de Admissão</label>
+    <input type="date" id="admissao">
+
+    <label>Data do Desligamento</label>
+    <input type="date" id="desligamento">
+
+    <label>Tipo de Aviso</label>
+    <select id="tipoAviso">
+      <option value="">Selecione</option>
+      <option value="trabalhado">Trabalhado</option>
+      <option value="indenizado">Indenizado</option>
+    </select>
+
+    <label>Data-base (dia e mês)</label>
+    <input type="date" id="dataBase">
+
+    <!-- ✅ onclick direto: não tem como “não calcular” -->
+    <button type="button" onclick="calcular()">Calcular</button>
+
+    <div id="resultado"></div>
+  </div>
+
+  <script>
+    // ✅ Evita bug de fuso do input date (YYYY-MM-DD)
+    function parseLocalDate(yyyyMmDd) {
+      if (!yyyyMmDd) return null;
+      const parts = yyyyMmDd.split("-");
+      if (parts.length !== 3) return null;
+      const y = Number(parts[0]), m = Number(parts[1]), d = Number(parts[2]);
+      if (!y || !m || !d) return null;
+      return new Date(y, m - 1, d); // local
+    }
+
+    function addDays(dateObj, days) {
+      const d = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+      d.setDate(d.getDate() + days);
+      return d;
+    }
+
+    function formatBR(dateObj) {
+      return dateObj.toLocaleDateString("pt-BR");
+    }
+
+    function anosCompletos(adm, des) {
+      let anos = des.getFullYear() - adm.getFullYear();
+      const mdAdm = adm.getMonth() * 100 + adm.getDate();
+      const mdDes = des.getMonth() * 100 + des.getDate();
+      if (mdDes < mdAdm) anos--;
+      return Math.max(0, anos);
+    }
+
+    function calcular() {
+      const resultado = document.getElementById("resultado");
+
+      const admissaoStr = document.getElementById("admissao").value;
+      const desligamentoStr = document.getElementById("desligamento").value;
+      const tipoAviso = document.getElementById("tipoAviso").value;
+      const dataBaseStr = document.getElementById("dataBase").value;
+
+      const admissao = parseLocalDate(admissaoStr);
+      const desligamento = parseLocalDate(desligamentoStr);
+      const dataBaseInput = parseLocalDate(dataBaseStr);
+
+      if (!admissaoStr || !desligamentoStr || !tipoAviso || !dataBaseStr) {
+        resultado.className = "resultado erro";
+        resultado.innerHTML = "Preencha todos os campos.";
+        return;
+      }
+
+      if (!admissao || !desligamento || !dataBaseInput) {
+        resultado.className = "resultado erro";
+        resultado.innerHTML = "Formato de data inválido. Selecione as datas novamente pelo calendário.";
+        return;
+      }
+
+      if (desligamento < admissao) {
+        resultado.className = "resultado erro";
+        resultado.innerHTML = "A data do desligamento não pode ser menor que a data de admissão.";
+        return;
+      }
+
+      const anos = anosCompletos(admissao, desligamento);
+
+      // Lei 12.506/2011: 30 + 3 por ano completo (máx 90)
+      let diasAviso = 30 + (anos * 3);
+      if (diasAviso > 90) diasAviso = 90;
+
+      const terminoAviso = addDays(desligamento, diasAviso);
+
+      // Data-base no ano do término do aviso
+      const dataBase = new Date(
+        terminoAviso.getFullYear(),
+        dataBaseInput.getMonth(),
+        dataBaseInput.getDate()
+      );
+
+      // ✅ SUA REGRA: “não pode” somente se cair nos 30 dias que antecedem a data-base
+      const inicioJanelaProibida = addDays(dataBase, -30);
+      const fimJanelaProibida = addDays(dataBase, -1);
+
+      const caiNaJanelaProibida =
+        terminoAviso >= inicioJanelaProibida && terminoAviso <= fimJanelaProibida;
+
+      let mensagem = `
+        <div>Anos completos trabalhados: <strong>${anos}</strong></div>
+        <div>Dias de aviso prévio: <strong>${diasAviso} dias</strong></div>
+        <div>Término do aviso: <strong>${formatBR(terminoAviso)}</strong></div>
+        <div>Data-base considerada: <strong>${formatBR(dataBase)}</strong></div>
+        <div class="mini">
+          Janela “30 dias antes da data-base”: <strong>${formatBR(inicioJanelaProibida)}</strong> até <strong>${formatBR(fimJanelaProibida)}</strong>
+        </div>
+      `;
+
+      if (caiNaJanelaProibida) {
+        resultado.className = "resultado erro";
+        resultado.innerHTML = mensagem + `
+          <div style="margin-top:10px;">❌ <strong>NÃO PODE DESLIGAR</strong><br>
+          O término do aviso cai nos 30 dias que antecedem a data-base.</div>`;
+      } else {
+        resultado.className = "resultado ok";
+        resultado.innerHTML = mensagem + `
+          <div style="margin-top:10px;">✅ <strong>PODE DESLIGAR</strong><br>
+          O aviso ultrapassa a data-base ou não cai na janela proibida.</div>`;
+      }
+    }
+  </script>
+</body>
+</html>
